@@ -8,21 +8,34 @@ import com.fasterxml.jackson.module.kotlin.contains
 import com.fasterxml.jackson.module.kotlin.convertValue
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import io.homeassistant.companion.android.common.BuildConfig
 import io.homeassistant.companion.android.common.data.HomeAssistantApis.Companion.USER_AGENT
 import io.homeassistant.companion.android.common.data.HomeAssistantApis.Companion.USER_AGENT_STRING
 import io.homeassistant.companion.android.common.data.HomeAssistantVersion
-import io.homeassistant.companion.android.common.data.authentication.AuthenticationRepository
 import io.homeassistant.companion.android.common.data.authentication.AuthorizationException
 import io.homeassistant.companion.android.common.data.integration.ServiceData
 import io.homeassistant.companion.android.common.data.integration.impl.entities.EntityResponse
-import io.homeassistant.companion.android.common.data.url.UrlRepository
+import io.homeassistant.companion.android.common.data.servers.ServerManager
 import io.homeassistant.companion.android.common.data.websocket.WebSocketRepository
 import io.homeassistant.companion.android.common.data.websocket.WebSocketRequest
 import io.homeassistant.companion.android.common.data.websocket.WebSocketState
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.AreaRegistryResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.AreaRegistryUpdatedEvent
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineError
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineEvent
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineEventType
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineIntentEnd
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineIntentStart
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineListResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineRunStart
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineSttEnd
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineTtsEnd
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.CompressedStateChangedEvent
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.ConversationResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.CurrentUserResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.DeviceRegistryResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.DeviceRegistryUpdatedEvent
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.DomainResponse
@@ -30,17 +43,24 @@ import io.homeassistant.companion.android.common.data.websocket.impl.entities.En
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.EntityRegistryUpdatedEvent
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.EventResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.GetConfigResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.MatterCommissionResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.SocketResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.StateChangedEvent
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.TemplateUpdatedEvent
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.ThreadDatasetResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.ThreadDatasetTlvResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.TriggerEvent
+import io.homeassistant.companion.android.common.util.toHexString
+import io.homeassistant.companion.android.database.server.ServerUserInfo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -59,21 +79,22 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
-import javax.inject.Inject
 import kotlin.coroutines.resumeWithException
 
-class WebSocketRepositoryImpl @Inject constructor(
+class WebSocketRepositoryImpl @AssistedInject constructor(
     private val okHttpClient: OkHttpClient,
-    private val urlRepository: UrlRepository,
-    private val authenticationRepository: AuthenticationRepository
+    private val serverManager: ServerManager,
+    @Assisted private val serverId: Int
 ) : WebSocketRepository, WebSocketListener() {
 
     companion object {
         private const val TAG = "WebSocketRepository"
 
+        private const val SUBSCRIBE_TYPE_ASSIST_PIPELINE_RUN = "assist_pipeline/run"
         private const val SUBSCRIBE_TYPE_SUBSCRIBE_EVENTS = "subscribe_events"
         private const val SUBSCRIBE_TYPE_SUBSCRIBE_ENTITIES = "subscribe_entities"
         private const val SUBSCRIBE_TYPE_SUBSCRIBE_TRIGGER = "subscribe_trigger"
@@ -101,6 +122,14 @@ class WebSocketRepositoryImpl @Inject constructor(
     private var connected = CompletableDeferred<Boolean>()
     private val eventSubscriptionMutex = Mutex()
 
+    private val server get() = serverManager.getServer(serverId)
+
+    private val messageQueue = Channel<Job>(capacity = Channel.UNLIMITED).apply {
+        ioScope.launch {
+            consumeEach { it.join() } // Run a job, and wait for it to complete before starting the next one
+        }
+    }
+
     override fun getConnectionState(): WebSocketState? = connectionState
 
     override suspend fun sendPing(): Boolean {
@@ -123,6 +152,18 @@ class WebSocketRepositoryImpl @Inject constructor(
         return mapResponse(socketResponse)
     }
 
+    override suspend fun getCurrentUser(): CurrentUserResponse? {
+        val socketResponse = sendMessage(
+            mapOf(
+                "type" to "auth/current_user"
+            )
+        )
+
+        val response: CurrentUserResponse? = mapResponse(socketResponse)
+        response?.let { updateServerWithUser(it) }
+        return response
+    }
+
     override suspend fun getStates(): List<EntityResponse<Any>>? {
         val socketResponse = sendMessage(
             mapOf(
@@ -134,7 +175,6 @@ class WebSocketRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getAreaRegistry(): List<AreaRegistryResponse>? {
-
         val socketResponse = sendMessage(
             mapOf(
                 "type" to "config/area_registry/list"
@@ -145,7 +185,6 @@ class WebSocketRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getDeviceRegistry(): List<DeviceRegistryResponse>? {
-
         val socketResponse = sendMessage(
             mapOf(
                 "type" to "config/device_registry/list"
@@ -156,10 +195,20 @@ class WebSocketRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getEntityRegistry(): List<EntityRegistryResponse>? {
-
         val socketResponse = sendMessage(
             mapOf(
                 "type" to "config/entity_registry/list"
+            )
+        )
+
+        return mapResponse(socketResponse)
+    }
+
+    override suspend fun getEntityRegistryFor(entityId: String): EntityRegistryResponse? {
+        val socketResponse = sendMessage(
+            mapOf(
+                "type" to "config/entity_registry/get",
+                "entity_id" to entityId
             )
         )
 
@@ -178,6 +227,83 @@ class WebSocketRepositoryImpl @Inject constructor(
             DomainResponse(it.key, it.value)
         }
     }
+
+    override suspend fun getConversation(speech: String): ConversationResponse? {
+        // TODO: Send default locale of device with request.
+        val socketResponse = sendMessage(
+            mapOf(
+                "type" to "conversation/process",
+                "text" to speech
+            )
+        )
+
+        return mapResponse(socketResponse)
+    }
+
+    override suspend fun getAssistPipeline(pipelineId: String?): AssistPipelineResponse? {
+        val data = mapOf(
+            "type" to "assist_pipeline/pipeline/get"
+        )
+        val socketResponse = sendMessage(
+            if (pipelineId != null) data.plus("pipeline_id" to pipelineId) else data
+        )
+
+        return mapResponse(socketResponse)
+    }
+
+    override suspend fun getAssistPipelines(): AssistPipelineListResponse? {
+        val socketResponse = sendMessage(
+            mapOf(
+                "type" to "assist_pipeline/pipeline/list"
+            )
+        )
+
+        return mapResponse(socketResponse)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun runAssistPipelineForText(
+        text: String,
+        pipelineId: String?,
+        conversationId: String?
+    ): Flow<AssistPipelineEvent>? {
+        val data = mapOf(
+            "start_stage" to "intent",
+            "end_stage" to "intent",
+            "input" to mapOf(
+                "text" to text
+            ),
+            "conversation_id" to conversationId
+        )
+        return subscribeTo(
+            SUBSCRIBE_TYPE_ASSIST_PIPELINE_RUN,
+            (pipelineId?.let { data.plus("pipeline" to it) } ?: data) as Map<Any, Any>
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun runAssistPipelineForVoice(
+        sampleRate: Int,
+        outputTts: Boolean,
+        pipelineId: String?,
+        conversationId: String?
+    ): Flow<AssistPipelineEvent>? {
+        val data = mapOf(
+            "start_stage" to "stt",
+            "end_stage" to (if (outputTts) "tts" else "intent"),
+            "input" to mapOf(
+                "sample_rate" to sampleRate
+            ),
+            "conversation_id" to conversationId
+        )
+        return subscribeTo(
+            SUBSCRIBE_TYPE_ASSIST_PIPELINE_RUN,
+            (pipelineId?.let { data.plus("pipeline" to it) } ?: data) as Map<Any, Any>
+        )
+    }
+
+    override suspend fun sendVoiceData(binaryHandlerId: Int, data: ByteArray): Boolean? =
+        sendBytes(byteArrayOf(binaryHandlerId.toByte()) + data)
 
     override suspend fun getStateChanges(): Flow<StateChangedEvent>? =
         subscribeToEventsForType(EVENT_STATE_CHANGED)
@@ -298,32 +424,31 @@ class WebSocketRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getNotifications(): Flow<Map<String, Any>>? =
+    override suspend fun getNotifications(): Flow<Map<String, Any>>? = server?.let {
         subscribeTo(
             SUBSCRIBE_TYPE_PUSH_NOTIFICATION_CHANNEL,
             mapOf(
-                "webhook_id" to urlRepository.getWebhookId().toString(),
+                "webhook_id" to it.connection.webhookId!!,
                 "support_confirm" to true
             ),
             DISCONNECT_DELAY
         )
+    }
 
     override suspend fun ackNotification(confirmId: String): Boolean {
-        val response = sendMessage(
-            mapOf(
-                "type" to "mobile_app/push_notification_confirm",
-                "webhook_id" to urlRepository.getWebhookId(),
-                "confirm_id" to confirmId
+        val response = server?.let {
+            sendMessage(
+                mapOf(
+                    "type" to "mobile_app/push_notification_confirm",
+                    "webhook_id" to it.connection.webhookId!!,
+                    "confirm_id" to confirmId
+                )
             )
-        )
+        }
         return response?.success == true
     }
 
-    /**
-     * Request the server to add a Matter device to the network and commission it
-     * @return `true` if the request was successful
-     */
-    override suspend fun commissionMatterDevice(code: String): Boolean {
+    override suspend fun commissionMatterDevice(code: String): MatterCommissionResponse? {
         val response = sendMessage(
             WebSocketRequest(
                 message = mapOf(
@@ -334,14 +459,21 @@ class WebSocketRepositoryImpl @Inject constructor(
             )
         )
 
-        return response?.success == true
+        return response?.let {
+            MatterCommissionResponse(
+                success = response.success == true,
+                errorCode = if (response.error?.has("code") == true) {
+                    response.error.get("code").let {
+                        if (it.isNumber) it.asInt() else null
+                    }
+                } else {
+                    null
+                }
+            )
+        }
     }
 
-    /**
-     * Request the server to commission a Matter device that is already on the network
-     * @return `true` if the request was successful
-     */
-    override suspend fun commissionMatterDeviceOnNetwork(pin: Long): Boolean {
+    override suspend fun commissionMatterDeviceOnNetwork(pin: Long): MatterCommissionResponse? {
         val response = sendMessage(
             WebSocketRequest(
                 message = mapOf(
@@ -352,7 +484,72 @@ class WebSocketRepositoryImpl @Inject constructor(
             )
         )
 
+        return response?.let {
+            MatterCommissionResponse(
+                success = response.success == true,
+                errorCode = if (response.error?.has("code") == true) {
+                    response.error.get("code").let {
+                        if (it.isNumber) it.asInt() else null
+                    }
+                } else {
+                    null
+                }
+            )
+        }
+    }
+
+    override suspend fun getThreadDatasets(): List<ThreadDatasetResponse>? {
+        val response = sendMessage(
+            mapOf(
+                "type" to "thread/list_datasets"
+            )
+        )
+        return if (response?.success == true && response.result?.contains("datasets") == true) {
+            mapper.convertValue(response.result["datasets"]!!)
+        } else {
+            null
+        }
+    }
+
+    override suspend fun getThreadDatasetTlv(datasetId: String): ThreadDatasetTlvResponse? {
+        val response = sendMessage(
+            mapOf(
+                "type" to "thread/get_dataset_tlv",
+                "dataset_id" to datasetId
+            )
+        )
+
+        return mapResponse(response)
+    }
+
+    override suspend fun addThreadDataset(tlv: ByteArray): Boolean {
+        val response = sendMessage(
+            mapOf(
+                "type" to "thread/add_dataset_tlv",
+                "source" to "Google",
+                "tlv" to tlv.toHexString()
+            )
+        )
         return response?.success == true
+    }
+
+    /**
+     * Update this repository's [server] with information from a [CurrentUserResponse] like user
+     * name and admin status.
+     */
+    private fun updateServerWithUser(user: CurrentUserResponse) {
+        server?.let {
+            serverManager.updateServer(
+                it.copy(
+                    user = ServerUserInfo(
+                        id = user.id,
+                        name = user.name,
+                        isOwner = user.isOwner,
+                        isAdmin = user.isAdmin
+                    )
+                )
+            )
+        }
     }
 
     private suspend fun connect(): Boolean {
@@ -361,7 +558,7 @@ class WebSocketRepositoryImpl @Inject constructor(
                 return !connected.isCancelled
             }
 
-            val url = urlRepository.getUrl()
+            val url = server?.connection?.getUrl()
             if (url == null) {
                 Log.w(TAG, "No url to connect websocket too.")
                 return false
@@ -383,7 +580,7 @@ class WebSocketRepositoryImpl @Inject constructor(
                         mapper.writeValueAsString(
                             mapOf(
                                 "type" to "auth",
-                                "access_token" to authenticationRepository.retrieveAccessToken()
+                                "access_token" to serverManager.authenticationRepository(serverId).retrieveAccessToken()
                             )
                         )
                     )
@@ -450,7 +647,27 @@ class WebSocketRepositoryImpl @Inject constructor(
                 }
             }
         } else {
-            Log.e(TAG, "Unable to send message $request")
+            Log.w(TAG, "Unable to send message, not connected: $request")
+            null
+        }
+    }
+
+    private suspend fun sendBytes(data: ByteArray): Boolean? {
+        return if (connect()) {
+            withTimeoutOrNull(30_000) {
+                try {
+                    connection?.let {
+                        synchronized(it) {
+                            it.send(data.toByteString())
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Exception while sending bytes", e)
+                    null
+                }
+            }
+        } else {
+            Log.w(TAG, "Unable to send bytes, not connected")
             null
         }
     }
@@ -505,6 +722,24 @@ class WebSocketRepositoryImpl @Inject constructor(
                         Log.w(TAG, "Received no trigger value for trigger subscription, skipping")
                         return
                     }
+                } else if (subscriptionType == SUBSCRIBE_TYPE_ASSIST_PIPELINE_RUN) {
+                    val eventType = response.event?.get("type")
+                    if (eventType?.isTextual == true) {
+                        val eventDataMap = response.event.get("data")
+                        val eventData = when (eventType.textValue()) {
+                            AssistPipelineEventType.RUN_START -> mapper.convertValue(eventDataMap, AssistPipelineRunStart::class.java)
+                            AssistPipelineEventType.STT_END -> mapper.convertValue(eventDataMap, AssistPipelineSttEnd::class.java)
+                            AssistPipelineEventType.INTENT_START -> mapper.convertValue(eventDataMap, AssistPipelineIntentStart::class.java)
+                            AssistPipelineEventType.INTENT_END -> mapper.convertValue(eventDataMap, AssistPipelineIntentEnd::class.java)
+                            AssistPipelineEventType.TTS_END -> mapper.convertValue(eventDataMap, AssistPipelineTtsEnd::class.java)
+                            AssistPipelineEventType.ERROR -> mapper.convertValue(eventDataMap, AssistPipelineError::class.java)
+                            else -> null
+                        }
+                        AssistPipelineEvent(eventType.textValue(), eventData)
+                    } else {
+                        Log.w(TAG, "Received Assist pipeline event without type, skipping")
+                        return
+                    }
                 } else if (eventResponseType != null && eventResponseType.isTextual) {
                     val eventResponseClass = when (eventResponseType.textValue()) {
                         EVENT_STATE_CHANGED ->
@@ -550,14 +785,19 @@ class WebSocketRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun shutdown() {
+        connection?.close(1001, "Session removed from app.")
+    }
+
     private fun handleClosingSocket() {
         ioScope.launch {
             connectedMutex.withLock {
                 connected = CompletableDeferred()
                 connection = null
                 connectionHaVersion = null
-                if (connectionState != WebSocketState.CLOSED_AUTH)
+                if (connectionState != WebSocketState.CLOSED_AUTH) {
                     connectionState = WebSocketState.CLOSED_OTHER
+                }
                 synchronized(activeMessages) {
                     activeMessages
                         .filterValues { it.eventFlow == null }
@@ -608,19 +848,22 @@ class WebSocketRepositoryImpl @Inject constructor(
             listOf(mapper.readValue(text))
         }
 
+        // Send messages to the queue to ensure they are handled in order and don't block the function
         messages.forEach { message ->
             Log.d(TAG, "Message number ${message.id} received")
-
-            ioScope.launch {
-                when (message.type) {
-                    "auth_required" -> Log.d(TAG, "Auth Requested")
-                    "auth_ok" -> handleAuthComplete(true, message.haVersion)
-                    "auth_invalid" -> handleAuthComplete(false, message.haVersion)
-                    "pong", "result" -> handleMessage(message)
-                    "event" -> handleEvent(message)
-                    else -> Log.d(TAG, "Unknown message type: ${message.type}")
+            val success = messageQueue.trySend(
+                ioScope.launch(start = CoroutineStart.LAZY) {
+                    when (message.type) {
+                        "auth_required" -> Log.d(TAG, "Auth Requested")
+                        "auth_ok" -> handleAuthComplete(true, message.haVersion)
+                        "auth_invalid" -> handleAuthComplete(false, message.haVersion)
+                        "pong", "result" -> handleMessage(message)
+                        "event" -> handleEvent(message)
+                        else -> Log.d(TAG, "Unknown message type: ${message.type}")
+                    }
                 }
-            }
+            )
+            if (!success.isSuccess) Log.w(TAG, "Message number ${message.id} not being processed")
         }
     }
 

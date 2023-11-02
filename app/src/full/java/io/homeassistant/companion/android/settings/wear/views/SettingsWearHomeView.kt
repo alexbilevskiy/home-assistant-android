@@ -14,7 +14,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.google.android.material.composethemeadapter.MdcTheme
+import com.google.accompanist.themeadapter.material.MdcTheme
 import com.mikepenz.iconics.compose.Image
 import com.mikepenz.iconics.typeface.library.community.material.CommunityMaterial
 import io.homeassistant.companion.android.settings.wear.SettingsWearViewModel
@@ -35,7 +35,8 @@ fun LoadSettingsHomeView(
             composable(SettingsWearMainView.FAVORITES) {
                 LoadWearFavoritesSettings(
                     settingsWearViewModel = settingsWearViewModel,
-                    onBackClicked = { navController.navigateUp() }
+                    onBackClicked = { navController.navigateUp() },
+                    events = settingsWearViewModel.resultSnackbar
                 )
             }
             composable(SettingsWearMainView.LANDING) {
@@ -49,7 +50,8 @@ fun LoadSettingsHomeView(
                     navigateFavorites = { navController.navigate(SettingsWearMainView.FAVORITES) },
                     navigateTemplateTile = { navController.navigate(SettingsWearMainView.TEMPLATE) },
                     loginWearOs = loginWearOs,
-                    onBackClicked = onStartBackClicked
+                    onBackClicked = onStartBackClicked,
+                    events = settingsWearViewModel.resultSnackbar
                 )
             }
             composable(SettingsWearMainView.TEMPLATE) {

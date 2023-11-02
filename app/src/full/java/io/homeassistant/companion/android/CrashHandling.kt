@@ -23,13 +23,13 @@ private const val FATAL_CRASH_FILE = "/fatalcrash/last_crash"
 
 fun initCrashReporting(context: Context, enabled: Boolean) {
     // Don't init on debug builds or when disabled
-    if (!shouldEnableCrashHandling(enabled))
+    if (!shouldEnableCrashHandling(enabled)) {
         return
+    }
 
     SentryAndroid.init(context) { options ->
         options.isEnableAutoSessionTracking = true
         options.isEnableNdk = false
-        options.dsn = "https://2d646f40f9574e0b9579e301a69bb030@o427061.ingest.sentry.io/5372876"
 
         options.beforeSend = SentryOptions.BeforeSendCallback { event, _ ->
             if (event.isCrashed && event.throwable != null) {
@@ -67,8 +67,9 @@ fun initCrashReporting(context: Context, enabled: Boolean) {
 }
 
 suspend fun getLatestFatalCrash(context: Context, enabled: Boolean): String? = withContext(Dispatchers.IO) {
-    if (!shouldEnableCrashHandling(enabled))
+    if (!shouldEnableCrashHandling(enabled)) {
         return@withContext null
+    }
 
     var toReturn: String? = null
     try {

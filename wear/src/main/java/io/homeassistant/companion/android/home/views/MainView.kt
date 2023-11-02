@@ -24,21 +24,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.wear.compose.material.Chip
-import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
-import androidx.wear.compose.material.MaterialTheme
-import androidx.wear.compose.material.PositionIndicator
-import androidx.wear.compose.material.Scaffold
-import androidx.wear.compose.material.ScalingLazyListState
-import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.rememberScalingLazyListState
+import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.Text
 import com.mikepenz.iconics.compose.Image
 import com.mikepenz.iconics.typeface.library.community.material.CommunityMaterial
 import io.homeassistant.companion.android.common.data.integration.Entity
+import io.homeassistant.companion.android.common.util.STATE_UNKNOWN
 import io.homeassistant.companion.android.home.MainViewModel
 import io.homeassistant.companion.android.theme.WearAppTheme
-import io.homeassistant.companion.android.theme.wearColorPalette
+import io.homeassistant.companion.android.theme.getFilledTonalButtonColors
+import io.homeassistant.companion.android.theme.getPrimaryButtonColors
+import io.homeassistant.companion.android.theme.wearColorScheme
 import io.homeassistant.companion.android.util.getIcon
 import io.homeassistant.companion.android.util.onEntityClickedFeedback
 import io.homeassistant.companion.android.views.ExpandableListHeader
@@ -54,81 +53,70 @@ fun MainView(
     onEntityLongClicked: (String) -> Unit,
     onRetryLoadEntitiesClicked: () -> Unit,
     onSettingsClicked: () -> Unit,
-    onTestClicked: (entityLists: Map<String, List<Entity<*>>>, listOrder: List<String>, filter: (Entity<*>) -> (Boolean)) -> Unit,
+    onNavigationClicked: (entityLists: Map<String, List<Entity<*>>>, listOrder: List<String>, filter: (Entity<*>) -> Boolean) -> Unit,
     isHapticEnabled: Boolean,
-    isToastEnabled: Boolean,
-    deleteFavorite: (String) -> Unit
+    isToastEnabled: Boolean
 ) {
-    val scalingLazyListState: ScalingLazyListState = rememberScalingLazyListState()
-
     var expandedFavorites: Boolean by rememberSaveable { mutableStateOf(true) }
 
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
 
     WearAppTheme {
-        Scaffold(
-            positionIndicator = {
-                if (scalingLazyListState.isScrollInProgress)
-                    PositionIndicator(scalingLazyListState = scalingLazyListState)
-            },
-            timeText = { TimeText(!scalingLazyListState.isScrollInProgress) }
-        ) {
-            ThemeLazyColumn(
-                state = scalingLazyListState
-            ) {
-                if (favoriteEntityIds.isNotEmpty()) {
-                    item {
-                        ExpandableListHeader(
-                            string = stringResource(commonR.string.favorites),
-                            expanded = expandedFavorites,
-                            onExpandChanged = { expandedFavorites = it }
-                        )
-                    }
-                    if (expandedFavorites) {
-                        items(favoriteEntityIds.size) { index ->
-                            val favoriteEntityID = favoriteEntityIds[index].split(",")[0]
-                            if (mainViewModel.entities.isEmpty()) {
-                                // when we don't have the state of the entity, create a Chip from cache as we don't have the state yet
-                                val cached = mainViewModel.getCachedEntity(favoriteEntityID)
-                                Chip(
-                                    modifier = Modifier
-                                        .fillMaxWidth(),
-                                    icon = {
-                                        Image(
-                                            asset = getIcon(cached?.icon, favoriteEntityID.split(".")[0], context) ?: CommunityMaterial.Icon.cmd_bookmark,
-                                            colorFilter = ColorFilter.tint(wearColorPalette.onSurface)
-                                        )
-                                    },
-                                    label = {
-                                        Text(
-                                            text = cached?.friendlyName ?: favoriteEntityID,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    },
-                                    onClick = {
-                                        onEntityClicked(favoriteEntityID, "unknown")
-                                        onEntityClickedFeedback(isToastEnabled, isHapticEnabled, context, favoriteEntityID, haptic)
-                                    },
-                                    colors = ChipDefaults.secondaryChipColors()
-                                )
-                            } else {
-                                mainViewModel.entities.values.toList()
-                                    .firstOrNull { it.entityId == favoriteEntityID }
-                                    ?.let {
-                                        EntityUi(
-                                            mainViewModel.entities[favoriteEntityID]!!,
-                                            onEntityClicked,
-                                            isHapticEnabled,
-                                            isToastEnabled
-                                        ) { entityId -> onEntityLongClicked(entityId) }
-                                    } ?: deleteFavorite(favoriteEntityID)
-                            }
+        ThemeLazyColumn {
+            if (favoriteEntityIds.isNotEmpty()) {
+                item {
+                    ExpandableListHeader(
+                        string = stringResource(commonR.string.favorites),
+                        expanded = expandedFavorites,
+                        onExpandChanged = { expandedFavorites = it }
+                    )
+                }
+                if (expandedFavorites) {
+                    items(favoriteEntityIds.size) { index ->
+                        val favoriteEntityID = favoriteEntityIds[index].split(",")[0]
+                        if (mainViewModel.entities.isEmpty()) {
+                            // when we don't have the state of the entity, create a Chip from cache as we don't have the state yet
+                            val cached = mainViewModel.getCachedEntity(favoriteEntityID)
+                            Button(
+                                modifier = Modifier
+                                    .fillMaxWidth(),
+                                icon = {
+                                    Image(
+                                        asset = getIcon(cached?.icon, favoriteEntityID.split(".")[0], context),
+                                        colorFilter = ColorFilter.tint(wearColorScheme.onSurface)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = cached?.friendlyName ?: favoriteEntityID,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                onClick = {
+                                    onEntityClicked(favoriteEntityID, STATE_UNKNOWN)
+                                    onEntityClickedFeedback(isToastEnabled, isHapticEnabled, context, favoriteEntityID, haptic)
+                                },
+                                colors = getFilledTonalButtonColors()
+                            )
+                        } else {
+                            mainViewModel.entities.values.toList()
+                                .firstOrNull { it.entityId == favoriteEntityID }
+                                ?.let {
+                                    EntityUi(
+                                        mainViewModel.entities[favoriteEntityID]!!,
+                                        onEntityClicked,
+                                        isHapticEnabled,
+                                        isToastEnabled
+                                    ) { entityId -> onEntityLongClicked(entityId) }
+                                }
                         }
                     }
                 }
+            }
 
+            if (!mainViewModel.isFavoritesOnly) {
                 when (mainViewModel.loadingState.value) {
                     MainViewModel.LoadingState.LOADING -> {
                         if (favoriteEntityIds.isEmpty()) {
@@ -137,8 +125,11 @@ fun MainView(
                         }
                         item {
                             val minHeight =
-                                if (favoriteEntityIds.isEmpty()) LocalConfiguration.current.screenHeightDp - 64
-                                else 0
+                                if (favoriteEntityIds.isEmpty()) {
+                                    LocalConfiguration.current.screenHeightDp - 64
+                                } else {
+                                    0
+                                }
                             Column(
                                 modifier = Modifier
                                     .heightIn(min = minHeight.dp)
@@ -160,7 +151,7 @@ fun MainView(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 ListHeader(id = commonR.string.error_loading_entities)
-                                Chip(
+                                Button(
                                     label = {
                                         Text(
                                             text = stringResource(commonR.string.retry),
@@ -169,7 +160,7 @@ fun MainView(
                                         )
                                     },
                                     onClick = onRetryLoadEntitiesClicked,
-                                    colors = ChipDefaults.primaryChipColors()
+                                    colors = ButtonDefaults.buttonColors()
                                 )
                                 Spacer(modifier = Modifier.height(32.dp))
                             }
@@ -186,27 +177,30 @@ fun MainView(
                                     Text(
                                         text = stringResource(commonR.string.no_supported_entities),
                                         textAlign = TextAlign.Center,
-                                        style = MaterialTheme.typography.title3,
-                                        modifier = Modifier.fillMaxWidth()
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
                                             .padding(top = 32.dp)
                                     )
                                     Text(
                                         text = stringResource(commonR.string.no_supported_entities_summary),
                                         textAlign = TextAlign.Center,
-                                        style = MaterialTheme.typography.body2,
-                                        modifier = Modifier.fillMaxWidth()
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
                                             .padding(top = 8.dp)
                                     )
                                 }
                             }
                         }
 
-                        if (mainViewModel.entitiesByArea.values.any {
-                            it.isNotEmpty() && it.any { entity ->
-                                mainViewModel.getCategoryForEntity(entity.entityId) == null &&
-                                    mainViewModel.getHiddenByForEntity(entity.entityId) == null
+                        if (
+                            mainViewModel.entitiesByArea.values.any {
+                                it.isNotEmpty() && it.any { entity ->
+                                    mainViewModel.getCategoryForEntity(entity.entityId) == null &&
+                                        mainViewModel.getHiddenByForEntity(entity.entityId) == null
+                                }
                             }
-                        }
                         ) {
                             item {
                                 ListHeader(id = commonR.string.areas)
@@ -220,21 +214,21 @@ fun MainView(
                                 if (!entitiesToShow.isNullOrEmpty()) {
                                     val area = mainViewModel.areas.first { it.areaId == id }
                                     item {
-                                        Chip(
+                                        Button(
                                             modifier = Modifier.fillMaxWidth(),
-                                            label = {
-                                                Text(text = area.name)
-                                            },
+                                            label = { Text(area.name) },
                                             onClick = {
-                                                onTestClicked(
+                                                onNavigationClicked(
                                                     mapOf(area.name to entities),
                                                     listOf(area.name)
                                                 ) {
                                                     mainViewModel.getCategoryForEntity(it.entityId) == null &&
-                                                        mainViewModel.getHiddenByForEntity(it.entityId) == null
+                                                        mainViewModel.getHiddenByForEntity(
+                                                        it.entityId
+                                                    ) == null
                                                 }
                                             },
-                                            colors = ChipDefaults.primaryChipColors()
+                                            colors = getPrimaryButtonColors()
                                         )
                                     }
                                 }
@@ -255,19 +249,22 @@ fun MainView(
                         // Buttons for each existing category
                         for (domain in mainViewModel.entitiesByDomainOrder) {
                             val domainEntities = mainViewModel.entitiesByDomain[domain]!!
-                            val domainEntitiesToShow = domainEntities.filter(domainEntitiesFilter)
+                            val domainEntitiesToShow =
+                                domainEntities.filter(domainEntitiesFilter)
                             if (domainEntitiesToShow.isNotEmpty()) {
                                 item {
-                                    Chip(
+                                    Button(
                                         modifier = Modifier.fillMaxWidth(),
                                         icon = {
-                                            getIcon("", domain, context)?.let { Image(asset = it) }
+                                            getIcon(
+                                                "",
+                                                domain,
+                                                context
+                                            ).let { Image(asset = it) }
                                         },
-                                        label = {
-                                            Text(text = mainViewModel.stringForDomain(domain)!!)
-                                        },
+                                        label = { Text(mainViewModel.stringForDomain(domain)!!) },
                                         onClick = {
-                                            onTestClicked(
+                                            onNavigationClicked(
                                                 mapOf(
                                                     mainViewModel.stringForDomain(domain)!! to domainEntities
                                                 ),
@@ -275,7 +272,7 @@ fun MainView(
                                                 domainEntitiesFilter
                                             )
                                         },
-                                        colors = ChipDefaults.primaryChipColors()
+                                        colors = getPrimaryButtonColors()
                                     )
                                 }
                             }
@@ -287,7 +284,7 @@ fun MainView(
                         // All entities regardless of area
                         if (mainViewModel.entities.isNotEmpty()) {
                             item {
-                                Chip(
+                                Button(
                                     modifier = Modifier
                                         .fillMaxWidth(),
                                     icon = {
@@ -300,38 +297,48 @@ fun MainView(
                                         Text(text = stringResource(commonR.string.all_entities))
                                     },
                                     onClick = {
-                                        onTestClicked(
-                                            mainViewModel.entitiesByDomain.mapKeys { mainViewModel.stringForDomain(it.key)!! },
-                                            mainViewModel.entitiesByDomain.keys.map { mainViewModel.stringForDomain(it)!! }.sorted()
+                                        onNavigationClicked(
+                                            mainViewModel.entitiesByDomain.mapKeys {
+                                                mainViewModel.stringForDomain(
+                                                    it.key
+                                                )!!
+                                            },
+                                            mainViewModel.entitiesByDomain.keys.map {
+                                                mainViewModel.stringForDomain(
+                                                    it
+                                                )!!
+                                            }.sorted()
                                         ) { true }
                                     },
-                                    colors = ChipDefaults.secondaryChipColors()
+                                    colors = getFilledTonalButtonColors()
                                 )
                             }
                         }
                     }
                 }
+            }
 
-                // Settings
+            if (mainViewModel.isFavoritesOnly) {
                 item {
-                    Chip(
-                        modifier = Modifier
-                            .fillMaxWidth(),
-                        icon = {
-                            Image(
-                                asset = CommunityMaterial.Icon.cmd_cog,
-                                colorFilter = ColorFilter.tint(Color.White)
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = stringResource(id = commonR.string.settings)
-                            )
-                        },
-                        onClick = onSettingsClicked,
-                        colors = ChipDefaults.secondaryChipColors()
-                    )
+                    Spacer(Modifier.padding(32.dp))
                 }
+            }
+
+            // Settings
+            item {
+                Button(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    icon = {
+                        Image(
+                            asset = CommunityMaterial.Icon.cmd_cog,
+                            colorFilter = ColorFilter.tint(Color.White)
+                        )
+                    },
+                    label = { Text(stringResource(commonR.string.settings)) },
+                    onClick = onSettingsClicked,
+                    colors = getFilledTonalButtonColors()
+                )
             }
         }
     }

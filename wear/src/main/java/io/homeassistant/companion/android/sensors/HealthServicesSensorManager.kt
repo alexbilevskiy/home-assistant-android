@@ -20,6 +20,7 @@ import androidx.health.services.client.data.PassiveMonitoringCapabilities
 import androidx.health.services.client.data.UserActivityInfo
 import androidx.health.services.client.data.UserActivityState
 import io.homeassistant.companion.android.common.sensors.SensorManager
+import io.homeassistant.companion.android.common.util.STATE_UNKNOWN
 import io.homeassistant.companion.android.database.AppDatabase
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.runBlocking
@@ -31,6 +32,7 @@ class HealthServicesSensorManager : SensorManager {
     companion object {
 
         private const val TAG = "HealthServices"
+        private var callbackLastUpdated = 0L
         private val userActivityState = SensorManager.BasicSensor(
             "activity_state",
             "sensor",
@@ -95,18 +97,18 @@ class HealthServicesSensorManager : SensorManager {
     override fun docsLink(): String {
         return "https://companion.home-assistant.io/docs/wear-os/sensors#health-services"
     }
-    override val enabledByDefault: Boolean
-        get() = false
 
     override val name: Int
         get() = commonR.string.sensor_name_health_services
 
     override suspend fun getAvailableSensors(context: Context): List<SensorManager.BasicSensor> {
         latestContext = context
-        if (healthClient == null)
+        if (healthClient == null) {
             healthClient = HealthServices.getClient(latestContext)
-        if (passiveMonitoringClient == null)
+        }
+        if (passiveMonitoringClient == null) {
             passiveMonitoringClient = healthClient?.passiveMonitoringClient
+        }
         if (passiveMonitoringCapabilities == null) {
             passiveMonitoringCapabilities = passiveMonitoringClient?.getCapabilitiesAsync()?.await()
             Log.d(TAG, "Supported capabilities: $passiveMonitoringCapabilities")
@@ -114,14 +116,18 @@ class HealthServicesSensorManager : SensorManager {
 
         val supportedSensors = mutableListOf(userActivityState)
 
-        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.FLOORS_DAILY) == true)
+        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.FLOORS_DAILY) == true) {
             supportedSensors += dailyFloors
-        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.DISTANCE_DAILY) == true)
+        }
+        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.DISTANCE_DAILY) == true) {
             supportedSensors += dailyDistance
-        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.CALORIES_DAILY) == true)
+        }
+        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.CALORIES_DAILY) == true) {
             supportedSensors += dailyCalories
-        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.STEPS_DAILY) == true)
+        }
+        if (passiveMonitoringCapabilities?.supportedDataTypesPassiveMonitoring?.contains(DataType.STEPS_DAILY) == true) {
             supportedSensors += dailySteps
+        }
         return supportedSensors
     }
 
@@ -139,11 +145,11 @@ class HealthServicesSensorManager : SensorManager {
     }
 
     private fun updateHealthServices() {
-        val activityStateEnabled = isEnabled(latestContext, userActivityState.id)
-        val dailyFloorEnabled = isEnabled(latestContext, dailyFloors.id)
-        val dailyDistanceEnabled = isEnabled(latestContext, dailyDistance.id)
-        val dailyCaloriesEnabled = isEnabled(latestContext, dailyCalories.id)
-        val dailyStepsEnabled = isEnabled(latestContext, dailySteps.id)
+        val activityStateEnabled = isEnabled(latestContext, userActivityState)
+        val dailyFloorEnabled = isEnabled(latestContext, dailyFloors)
+        val dailyDistanceEnabled = isEnabled(latestContext, dailyDistance)
+        val dailyCaloriesEnabled = isEnabled(latestContext, dailyCalories)
+        val dailyStepsEnabled = isEnabled(latestContext, dailySteps)
 
         if (
             !activityStateEnabled && !dailyFloorEnabled && !dailyDistanceEnabled &&
@@ -157,21 +163,25 @@ class HealthServicesSensorManager : SensorManager {
         if (passiveMonitoringClient == null) passiveMonitoringClient = healthClient?.passiveMonitoringClient
 
         val dataTypes = mutableSetOf<DataType<*, *>>()
-        if (dailyFloorEnabled)
+        if (dailyFloorEnabled) {
             dataTypes += DataType.FLOORS_DAILY
-        if (dailyDistanceEnabled)
+        }
+        if (dailyDistanceEnabled) {
             dataTypes += DataType.DISTANCE_DAILY
-        if (dailyCaloriesEnabled)
+        }
+        if (dailyCaloriesEnabled) {
             dataTypes += DataType.CALORIES_DAILY
-        if (dailyStepsEnabled)
+        }
+        if (dailyStepsEnabled) {
             dataTypes += DataType.STEPS_DAILY
+        }
 
         passiveListenerConfig = PassiveListenerConfig.builder()
             .setShouldUserActivityInfoBeRequested(activityStateEnabled)
             .setDataTypes(dataTypes)
             .build()
 
-        if (dataTypesRegistered != dataTypes || activityStateRegistered != activityStateEnabled) {
+        if (dataTypesRegistered != dataTypes || activityStateRegistered != activityStateEnabled || callbackLastUpdated + 1800000 < System.currentTimeMillis()) {
             clearHealthServicesCallBack()
         }
 
@@ -181,6 +191,8 @@ class HealthServicesSensorManager : SensorManager {
         val passiveListenerCallback: PassiveListenerCallback = object : PassiveListenerCallback {
             override fun onUserActivityInfoReceived(info: UserActivityInfo) {
                 Log.d(TAG, "User activity state: ${info.userActivityState.name}")
+                callbackLastUpdated = System.currentTimeMillis()
+                val forceUpdate = info.userActivityState == UserActivityState.USER_ACTIVITY_EXERCISE
                 onSensorUpdated(
                     latestContext,
                     userActivityState,
@@ -188,21 +200,26 @@ class HealthServicesSensorManager : SensorManager {
                         UserActivityState.USER_ACTIVITY_ASLEEP -> "asleep"
                         UserActivityState.USER_ACTIVITY_PASSIVE -> "passive"
                         UserActivityState.USER_ACTIVITY_EXERCISE -> "exercise"
-                        else -> "unknown"
+                        else -> STATE_UNKNOWN
                     },
                     getActivityIcon(info),
                     mapOf(
                         "time" to info.stateChangeTime,
                         "exercise_type" to info.exerciseInfo?.exerciseType?.name
                     ),
-                    forceUpdate = info.userActivityState == UserActivityState.USER_ACTIVITY_EXERCISE
+                    forceUpdate = forceUpdate
                 )
+                val sensorDao = AppDatabase.getInstance(latestContext).sensorDao()
+                val sensorData = sensorDao.get(userActivityState.id)
 
-                SensorReceiver.updateAllSensors(latestContext)
+                if (sensorData.any { it.state != it.lastSentState } || forceUpdate) {
+                    SensorReceiver.updateAllSensors(latestContext)
+                }
             }
 
             override fun onNewDataPointsReceived(dataPoints: DataPointContainer) {
                 Log.d(TAG, "New data point received: ${dataPoints.dataTypes}")
+                callbackLastUpdated = System.currentTimeMillis()
                 val floorsDaily = dataPoints.getData(DataType.FLOORS_DAILY)
                 val distanceDaily = dataPoints.getData(DataType.DISTANCE_DAILY)
                 val caloriesDaily = dataPoints.getData(DataType.CALORIES_DAILY)
@@ -235,7 +252,9 @@ class HealthServicesSensorManager : SensorManager {
             override fun onPermissionLost() {
                 val sensorDao = AppDatabase.getInstance(latestContext).sensorDao()
                 runBlocking {
-                    sensorDao.setSensorsEnabled(listOf(userActivityState.id), false)
+                    serverManager(latestContext).defaultServers.forEach {
+                        sensorDao.setSensorsEnabled(listOf(userActivityState.id), it.id, false)
+                    }
                 }
             }
 

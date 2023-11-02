@@ -7,7 +7,7 @@ import android.view.ViewGroup
 import androidx.compose.ui.platform.ComposeView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
-import com.google.android.material.composethemeadapter.MdcTheme
+import com.google.accompanist.themeadapter.material.MdcTheme
 import dagger.hilt.android.AndroidEntryPoint
 import io.homeassistant.companion.android.settings.url.views.ExternalUrlView
 import io.homeassistant.companion.android.common.R as commonR
@@ -15,12 +15,11 @@ import io.homeassistant.companion.android.common.R as commonR
 @AndroidEntryPoint
 class ExternalUrlFragment : Fragment() {
 
-    val viewModel by viewModels<ExternalUrlViewModel>()
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setHasOptionsMenu(false)
+    companion object {
+        const val EXTRA_SERVER = "server"
     }
+
+    val viewModel by viewModels<ExternalUrlViewModel>()
 
     override fun onCreateView(
         inflater: LayoutInflater,

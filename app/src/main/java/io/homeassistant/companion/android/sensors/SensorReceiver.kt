@@ -8,19 +8,34 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.net.wifi.WifiManager
+import android.nfc.NfcAdapter
 import android.os.PowerManager
 import dagger.hilt.android.AndroidEntryPoint
 import io.homeassistant.companion.android.BuildConfig
+import io.homeassistant.companion.android.common.sensors.AndroidOsSensorManager
 import io.homeassistant.companion.android.common.sensors.AudioSensorManager
 import io.homeassistant.companion.android.common.sensors.BatterySensorManager
+import io.homeassistant.companion.android.common.sensors.BluetoothSensorManager
 import io.homeassistant.companion.android.common.sensors.DNDSensorManager
+import io.homeassistant.companion.android.common.sensors.DisplaySensorManager
+import io.homeassistant.companion.android.common.sensors.KeyguardSensorManager
+import io.homeassistant.companion.android.common.sensors.LastRebootSensorManager
 import io.homeassistant.companion.android.common.sensors.LastUpdateManager
+import io.homeassistant.companion.android.common.sensors.LightSensorManager
+import io.homeassistant.companion.android.common.sensors.MobileDataManager
 import io.homeassistant.companion.android.common.sensors.NetworkSensorManager
 import io.homeassistant.companion.android.common.sensors.NextAlarmManager
+import io.homeassistant.companion.android.common.sensors.NfcSensorManager
+import io.homeassistant.companion.android.common.sensors.PhoneStateSensorManager
 import io.homeassistant.companion.android.common.sensors.PowerSensorManager
+import io.homeassistant.companion.android.common.sensors.PressureSensorManager
+import io.homeassistant.companion.android.common.sensors.ProximitySensorManager
 import io.homeassistant.companion.android.common.sensors.SensorManager
 import io.homeassistant.companion.android.common.sensors.SensorReceiverBase
 import io.homeassistant.companion.android.common.sensors.StepsSensorManager
+import io.homeassistant.companion.android.common.sensors.StorageSensorManager
+import io.homeassistant.companion.android.common.sensors.TimeZoneManager
+import io.homeassistant.companion.android.common.sensors.TrafficStatsManager
 import io.homeassistant.companion.android.settings.SettingsActivity
 
 @AndroidEntryPoint
@@ -39,10 +54,13 @@ class SensorReceiver : SensorReceiverBase() {
         const val TAG = "SensorReceiver"
         val MANAGERS = listOf(
             ActivitySensorManager(),
+            AndroidAutoSensorManager(),
+            AndroidOsSensorManager(),
             AppSensorManager(),
             AudioSensorManager(),
             BatterySensorManager(),
             BluetoothSensorManager(),
+            CarSensorManager(),
             DisplaySensorManager(),
             DNDSensorManager(),
             DynamicColorSensorManager(),
@@ -56,6 +74,7 @@ class SensorReceiver : SensorReceiverBase() {
             LocationSensorManager(),
             MobileDataManager(),
             NetworkSensorManager(),
+            NfcSensorManager(),
             NextAlarmManager(),
             NotificationSensorManager(),
             PhoneStateSensorManager(),
@@ -98,6 +117,7 @@ class SensorReceiver : SensorReceiverBase() {
         Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE to DevicePolicyManager.isWorkProfile.id,
         Intent.ACTION_MANAGED_PROFILE_AVAILABLE to DevicePolicyManager.isWorkProfile.id,
         WifiManager.WIFI_STATE_CHANGED_ACTION to NetworkSensorManager.wifiState.id,
+        NfcAdapter.ACTION_ADAPTER_STATE_CHANGED to NfcSensorManager.nfcStateSensor.id
     )
 
     override fun getSensorSettingsIntent(

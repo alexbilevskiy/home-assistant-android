@@ -1,12 +1,14 @@
 package io.homeassistant.companion.android.matter.views
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -14,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.Divider
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.ProvideTextStyle
 import androidx.compose.material.Text
@@ -21,18 +24,20 @@ import androidx.compose.material.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
-import com.google.android.material.composethemeadapter.MdcTheme
+import com.google.accompanist.themeadapter.material.MdcTheme
 import io.homeassistant.companion.android.R
+import io.homeassistant.companion.android.database.server.Server
+import io.homeassistant.companion.android.database.server.ServerConnectionInfo
+import io.homeassistant.companion.android.database.server.ServerSessionInfo
+import io.homeassistant.companion.android.database.server.ServerUserInfo
 import io.homeassistant.companion.android.matter.MatterCommissioningViewModel.CommissioningFlowStep
 import kotlin.math.min
 import io.homeassistant.companion.android.common.R as commonR
@@ -40,19 +45,20 @@ import io.homeassistant.companion.android.common.R as commonR
 @Composable
 fun MatterCommissioningView(
     step: CommissioningFlowStep,
+    deviceName: String?,
+    servers: List<Server>,
+    onSelectServer: (Int) -> Unit,
     onConfirmCommissioning: () -> Unit,
     onClose: () -> Unit,
     onContinue: () -> Unit
 ) {
-    if (step == CommissioningFlowStep.NOT_STARTED) return
+    if (step == CommissioningFlowStep.NotStarted) return
 
     val screenWidth = LocalConfiguration.current.screenWidthDp
-    val notLoadingSteps = listOf(
-        CommissioningFlowStep.NOT_REGISTERED,
-        CommissioningFlowStep.NOT_SUPPORTED,
-        CommissioningFlowStep.CONFIRMATION,
-        CommissioningFlowStep.SUCCESS,
-        CommissioningFlowStep.FAILURE
+    val loadingSteps = listOf(
+        CommissioningFlowStep.NotStarted,
+        CommissioningFlowStep.CheckingCore,
+        CommissioningFlowStep.Working
     )
 
     Box(
@@ -74,7 +80,7 @@ fun MatterCommissioningView(
                         .fillMaxWidth()
                         .align(Alignment.CenterHorizontally)
                 ) {
-                    if (step !in notLoadingSteps) {
+                    if (step in loadingSteps) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -82,7 +88,7 @@ fun MatterCommissioningView(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             CircularProgressIndicator()
-                            if (step == CommissioningFlowStep.WORKING) {
+                            if (step is CommissioningFlowStep.Working) {
                                 Text(
                                     text = stringResource(commonR.string.matter_shared_status_working),
                                     textAlign = TextAlign.Center,
@@ -94,16 +100,27 @@ fun MatterCommissioningView(
                         }
                     } else {
                         Text(
-                            text = stringResource(
-                                when (step) {
-                                    CommissioningFlowStep.NOT_REGISTERED -> commonR.string.matter_shared_status_not_registered
-                                    CommissioningFlowStep.NOT_SUPPORTED -> commonR.string.matter_shared_status_not_supported
-                                    CommissioningFlowStep.CONFIRMATION -> commonR.string.matter_shared_status_confirmation
-                                    CommissioningFlowStep.SUCCESS -> commonR.string.matter_shared_status_success
-                                    CommissioningFlowStep.FAILURE -> commonR.string.matter_shared_status_failure
-                                    else -> 0 // not used because everything above is in notLoadingSteps
+                            text = when (step) {
+                                CommissioningFlowStep.NotRegistered -> stringResource(commonR.string.matter_shared_status_not_registered)
+                                CommissioningFlowStep.SelectServer -> stringResource(commonR.string.matter_shared_status_select_server)
+                                CommissioningFlowStep.NotSupported -> stringResource(commonR.string.matter_shared_status_not_supported)
+                                CommissioningFlowStep.Confirmation -> {
+                                    if (deviceName?.isNotBlank() == true) {
+                                        stringResource(commonR.string.matter_shared_status_confirmation_named, deviceName)
+                                    } else {
+                                        stringResource(commonR.string.matter_shared_status_confirmation)
+                                    }
                                 }
-                            ),
+                                CommissioningFlowStep.Success -> stringResource(commonR.string.matter_shared_status_success)
+                                is CommissioningFlowStep.Failure -> {
+                                    if (step.errorCode != null) {
+                                        stringResource(commonR.string.matter_shared_status_failure_code, step.errorCode)
+                                    } else {
+                                        stringResource(commonR.string.matter_shared_status_failure)
+                                    }
+                                }
+                                else -> "" // not used because everything above is not in loadingSteps
+                            },
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -111,36 +128,56 @@ fun MatterCommissioningView(
                 }
             }
 
-            if (step in notLoadingSteps) {
+            if (step == CommissioningFlowStep.SelectServer) {
+                Spacer(modifier = Modifier.height(16.dp))
+                servers.forEach {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .clickable { onSelectServer(it.id) }
+                    ) {
+                        Text(it.friendlyName)
+                    }
+                    Divider()
+                }
+            }
+
+            if (step !in loadingSteps) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 32.dp, bottom = 16.dp)
                 ) {
-                    if (step == CommissioningFlowStep.CONFIRMATION || step == CommissioningFlowStep.FAILURE) {
+                    if (
+                        step == CommissioningFlowStep.SelectServer ||
+                        step == CommissioningFlowStep.Confirmation ||
+                        step is CommissioningFlowStep.Failure
+                    ) {
                         TextButton(onClick = { onClose() }) {
                             Text(stringResource(commonR.string.cancel))
                         }
                     }
                     Spacer(modifier = Modifier.weight(1f))
                     when (step) {
-                        CommissioningFlowStep.NOT_REGISTERED,
-                        CommissioningFlowStep.NOT_SUPPORTED -> {
+                        CommissioningFlowStep.NotRegistered,
+                        CommissioningFlowStep.NotSupported -> {
                             Button(onClick = { onClose() }) {
                                 Text(stringResource(commonR.string.close))
                             }
                         }
-                        CommissioningFlowStep.CONFIRMATION -> {
+                        CommissioningFlowStep.Confirmation -> {
                             Button(onClick = { onConfirmCommissioning() }) {
                                 Text(stringResource(commonR.string.add_device))
                             }
                         }
-                        CommissioningFlowStep.SUCCESS -> {
+                        CommissioningFlowStep.Success -> {
                             Button(onClick = { onContinue() }) {
                                 Text(stringResource(commonR.string.continue_connect))
                             }
                         }
-                        CommissioningFlowStep.FAILURE -> {
+                        is CommissioningFlowStep.Failure -> {
                             Button(onClick = { onConfirmCommissioning() }) {
                                 Text(stringResource(commonR.string.retry))
                             }
@@ -160,7 +197,6 @@ fun MatterCommissioningViewHeader() {
         Image(
             imageVector = ImageVector.vectorResource(R.drawable.ic_matter),
             contentDescription = null,
-            colorFilter = ColorFilter.tint(colorResource(commonR.color.colorAccent)),
             modifier = Modifier
                 .size(48.dp)
                 .align(Alignment.CenterHorizontally)
@@ -184,6 +220,11 @@ fun PreviewMatterCommissioningView(
     MdcTheme {
         MatterCommissioningView(
             step = step,
+            deviceName = "Manufacturer Matter Light",
+            servers = listOf(
+                Server(id = 0, _name = "Home", listOrder = -1, connection = ServerConnectionInfo(externalUrl = ""), session = ServerSessionInfo(), user = ServerUserInfo())
+            ),
+            onSelectServer = { },
             onConfirmCommissioning = { },
             onClose = { },
             onContinue = { }

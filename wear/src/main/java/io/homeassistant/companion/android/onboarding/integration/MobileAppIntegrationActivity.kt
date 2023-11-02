@@ -10,6 +10,7 @@ import androidx.wear.activity.ConfirmationActivity
 import dagger.hilt.android.AndroidEntryPoint
 import io.homeassistant.companion.android.databinding.ActivityIntegrationBinding
 import io.homeassistant.companion.android.home.HomeActivity
+import io.homeassistant.companion.android.util.adjustInset
 import javax.inject.Inject
 import io.homeassistant.companion.android.common.R as commonR
 
@@ -17,9 +18,12 @@ import io.homeassistant.companion.android.common.R as commonR
 class MobileAppIntegrationActivity : AppCompatActivity(), MobileAppIntegrationView {
     companion object {
         private const val TAG = "MobileAppIntegrationActivity"
+        const val EXTRA_SERVER = "server"
 
-        fun newInstance(context: Context): Intent {
-            return Intent(context, MobileAppIntegrationActivity::class.java)
+        fun newInstance(context: Context, serverId: Int): Intent {
+            return Intent(context, MobileAppIntegrationActivity::class.java).apply {
+                putExtra(EXTRA_SERVER, serverId)
+            }
         }
     }
 
@@ -30,20 +34,26 @@ class MobileAppIntegrationActivity : AppCompatActivity(), MobileAppIntegrationVi
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val serverId = intent.getIntExtra(EXTRA_SERVER, 0)
+        if (serverId == 0) finish()
+
         binding = ActivityIntegrationBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.serverUrl.setText(Build.MODEL)
+        binding.deviceName.setText(Build.MODEL)
 
         binding.finish.setOnClickListener {
-            presenter.onRegistrationAttempt(binding.serverUrl.text.toString())
+            presenter.onRegistrationAttempt(serverId, binding.deviceName.text.toString())
         }
+
+        adjustInset(applicationContext, binding, null)
     }
 
     override fun onResume() {
         super.onResume()
 
         binding.loadingView.visibility = View.GONE
+        binding.constraintLayout.visibility = View.VISIBLE
     }
 
     override fun deviceRegistered() {
@@ -55,6 +65,7 @@ class MobileAppIntegrationActivity : AppCompatActivity(), MobileAppIntegrationVi
 
     override fun showLoading() {
         binding.loadingView.visibility = View.VISIBLE
+        binding.constraintLayout.visibility = View.GONE
     }
 
     override fun showError() {
@@ -68,6 +79,7 @@ class MobileAppIntegrationActivity : AppCompatActivity(), MobileAppIntegrationVi
         }
         startActivity(intent)
         binding.loadingView.visibility = View.GONE
+        binding.constraintLayout.visibility = View.VISIBLE
     }
 
     override fun onDestroy() {

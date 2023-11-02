@@ -5,31 +5,42 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
-import androidx.core.graphics.drawable.DrawableCompat
-import androidx.core.graphics.drawable.toBitmap
-import com.maltaisn.icondialog.pack.IconPack
-import com.maltaisn.icondialog.pack.IconPackLoader
-import com.maltaisn.iconpack.mdi.createMaterialDesignIconPack
+import androidx.core.content.getSystemService
+import com.mikepenz.iconics.IconicsDrawable
+import com.mikepenz.iconics.typeface.library.community.material.CommunityMaterial
+import com.mikepenz.iconics.utils.sizeDp
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
-import io.homeassistant.companion.android.common.data.integration.IntegrationRepository
+import io.homeassistant.companion.android.common.data.integration.Entity
+import io.homeassistant.companion.android.common.data.integration.EntityExt
+import io.homeassistant.companion.android.common.data.integration.getIcon
+import io.homeassistant.companion.android.common.data.integration.isActive
+import io.homeassistant.companion.android.common.data.integration.onEntityPressedWithoutState
+import io.homeassistant.companion.android.common.data.servers.ServerManager
 import io.homeassistant.companion.android.database.qs.TileDao
 import io.homeassistant.companion.android.database.qs.TileEntity
+import io.homeassistant.companion.android.database.qs.getHighestInUse
 import io.homeassistant.companion.android.database.qs.isSetup
+import io.homeassistant.companion.android.database.qs.numberedId
 import io.homeassistant.companion.android.settings.SettingsActivity
+import io.homeassistant.companion.android.settings.qs.updateActiveTileServices
+import io.homeassistant.companion.android.util.icondialog.getIconByMdiName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import io.homeassistant.companion.android.common.R as commonR
@@ -43,7 +54,7 @@ abstract class TileExtensions : TileService() {
     abstract fun getTileId(): String
 
     @Inject
-    lateinit var integrationUseCase: IntegrationRepository
+    lateinit var serverManager: ServerManager
 
     @Inject
     lateinit var tileDao: TileDao
@@ -57,7 +68,7 @@ abstract class TileExtensions : TileService() {
         getTile()?.let { tile ->
             mainScope.launch {
                 setTileData(getTileId(), tile)
-                tileClicked(getTileId(), tile)
+                tileClicked(getTileId(), tile, false)
             }
         }
     }
@@ -80,7 +91,7 @@ abstract class TileExtensions : TileService() {
         super.onTileRemoved()
         Log.d(TAG, "Tile: ${getTileId()} removed")
         handleInject()
-        mainScope.launch {
+        runBlocking {
             setTileAdded(getTileId(), false)
         }
     }
@@ -94,11 +105,20 @@ abstract class TileExtensions : TileService() {
             }
             stateUpdateJob = mainScope.launch {
                 val tileData = tileDao.get(getTileId())
-                if (tileData != null && tileData.isSetup && tileData.entityId.split('.')[0] in toggleDomainsWithLock)
-                    integrationUseCase.getEntityUpdates(listOf(tileData.entityId))?.collect {
-                        tile.state = if (it.state in validActiveStates) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+                if (tileData != null &&
+                    tileData.isSetup &&
+                    tileData.entityId.split('.')[0] in toggleDomainsWithLock &&
+                    serverManager.getServer(tileData.serverId) != null
+                ) {
+                    serverManager.integrationRepository(tileData.serverId).getEntityUpdates(listOf(tileData.entityId))?.collect {
+                        tile.state =
+                            if (it.isActive()) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+                        getTileIcon(tileData.iconName, it, applicationContext)?.let { icon ->
+                            tile.icon = Icon.createWithBitmap(icon)
+                        }
                         tile.updateTile()
                     }
+                }
             }
         }
     }
@@ -124,20 +144,33 @@ abstract class TileExtensions : TileService() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     tile.subtitle = tileData.subtitle
                 }
-                if (tileData.entityId.split('.')[0] in toggleDomainsWithLock) {
-                    try {
-                        val state = withContext(Dispatchers.IO) { integrationUseCase.getEntity(tileData.entityId) }
-                        tile.state = if (state?.state in validActiveStates) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Unable to set state for tile", e)
-                        tile.state = Tile.STATE_UNAVAILABLE
+                val state: Entity<*>? =
+                    if (
+                        tileData.entityId.split(".")[0] in toggleDomainsWithLock ||
+                        tileData.iconName == null
+                    ) {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                serverManager.integrationRepository(tileData.serverId).getEntity(tileData.entityId)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Unable to get state for tile", e)
+                                null
+                            }
+                        }
+                    } else {
+                        null
                     }
-                } else
+                if (tileData.entityId.split('.')[0] in toggleDomainsWithLock) {
+                    tile.state = when {
+                        state?.isActive() == true -> Tile.STATE_ACTIVE
+                        state?.state != null && !state.isActive() -> Tile.STATE_INACTIVE
+                        else -> Tile.STATE_UNAVAILABLE
+                    }
+                } else {
                     tile.state = Tile.STATE_INACTIVE
+                }
 
-                val iconId = tileData.iconId
-                if (iconId != null) {
-                    val icon = getTileIcon(iconId, context)
+                getTileIcon(tileData.iconName, state, context)?.let { icon ->
                     tile.icon = Icon.createWithBitmap(icon)
                 }
                 Log.d(TAG, "Tile data set for tile ID: $tileId")
@@ -150,8 +183,11 @@ abstract class TileExtensions : TileService() {
                     Log.d(TAG, "No tile data found for tile ID: $tileId")
                 }
                 tile.state =
-                    if (integrationUseCase.isRegistered()) Tile.STATE_INACTIVE
-                    else Tile.STATE_UNAVAILABLE
+                    if (serverManager.isRegistered()) {
+                        Tile.STATE_INACTIVE
+                    } else {
+                        Tile.STATE_UNAVAILABLE
+                    }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     tile.subtitle = getString(commonR.string.tile_not_setup)
                 }
@@ -166,47 +202,50 @@ abstract class TileExtensions : TileService() {
 
     private suspend fun tileClicked(
         tileId: String,
-        tile: Tile
+        tile: Tile,
+        isUnlock: Boolean
     ) {
         Log.d(TAG, "Click detected for tile ID: $tileId")
         val context = applicationContext
         val tileData = tileDao.get(tileId)
+        val vm = getSystemService<Vibrator>()
+        if (!isUnlock) {
+            if (tileData?.shouldVibrate == true) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    vm?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vm?.vibrate(500)
+                }
+            }
+            if (tileData?.authRequired == true && isSecure) {
+                unlockAndRun {
+                    mainScope.launch { tileClicked(tileId, tile, true) }
+                }
+                return
+            }
+        }
+
         val hasTile = setTileData(tileId, tile)
         val needsUpdate = tileData != null && tileData.entityId.split('.')[0] !in toggleDomainsWithLock
         if (hasTile) {
+            if (tileData?.serverId == null || serverManager.getServer(tileData.serverId) == null) {
+                tileClickedError(tileData, null)
+                return
+            }
             if (needsUpdate) {
                 tile.state = Tile.STATE_ACTIVE
                 tile.updateTile()
             }
             withContext(Dispatchers.IO) {
                 try {
-                    integrationUseCase.callService(
-                        tileData!!.entityId.split(".")[0],
-                        when (tileData.entityId.split(".")[0]) {
-                            "button", "input_button" -> "press"
-                            in toggleDomains -> "toggle"
-                            "lock" -> {
-                                val state = integrationUseCase.getEntity(tileData.entityId)
-                                if (state?.state == "locked")
-                                    "unlock"
-                                else
-                                    "lock"
-                            }
-                            else -> "turn_on"
-                        },
-                        hashMapOf("entity_id" to tileData.entityId)
+                    onEntityPressedWithoutState(
+                        tileData.entityId,
+                        serverManager.integrationRepository(tileData.serverId)
                     )
                     Log.d(TAG, "Service call sent for tile ID: $tileId")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Unable to call service for tile ID: $tileId", e)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            context,
-                            commonR.string.service_call_failure,
-                            Toast.LENGTH_SHORT
-                        )
-                            .show()
-                    }
+                    tileClickedError(tileData, e)
                 }
             }
             if (needsUpdate) {
@@ -227,6 +266,27 @@ abstract class TileExtensions : TileService() {
         }
     }
 
+    private suspend fun tileClickedError(tileData: TileEntity?, e: Exception?) {
+        if (e != null) Log.e(TAG, "Unable to call service for tile ID: ${tileData?.id}", e)
+        if (tileData != null && tileData.shouldVibrate) {
+            val vm = getSystemService<Vibrator>()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vm?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK))
+            } else {
+                @Suppress("DEPRECATION")
+                vm?.vibrate(1000)
+            }
+        }
+        withContext(Dispatchers.Main) {
+            Toast.makeText(
+                applicationContext,
+                commonR.string.service_call_failure,
+                Toast.LENGTH_SHORT
+            )
+                .show()
+        }
+    }
+
     private suspend fun setTileAdded(tileId: String, added: Boolean) {
         tileDao.get(tileId)?.let {
             tileDao.add(it.copy(added = added))
@@ -236,40 +296,43 @@ abstract class TileExtensions : TileService() {
                     TileEntity(
                         tileId = tileId,
                         added = true,
-                        iconId = null,
+                        serverId = 0,
+                        iconName = null,
                         entityId = "",
                         label = "",
-                        subtitle = null
+                        subtitle = null,
+                        shouldVibrate = false,
+                        authRequired = false
                     )
                 )
             } // else if it doesn't exist and is removed we don't have to save anything
         }
+
+        val highestInUse = tileDao.getHighestInUse()?.numberedId ?: 0
+        Log.d(TAG, "Highest tile in use: $highestInUse")
+        updateActiveTileServices(highestInUse, applicationContext)
+    }
+
+    private fun getTileIcon(tileIconName: String?, entity: Entity<*>?, context: Context): Bitmap? {
+        // Create an icon pack and load all drawables.
+        if (!tileIconName.isNullOrBlank()) {
+            val icon = CommunityMaterial.getIconByMdiName(tileIconName) ?: return null
+            val iconDrawable = IconicsDrawable(context, icon)
+            return iconDrawable.toBitmap()
+        } else {
+            entity?.getIcon(context)?.let {
+                return IconicsDrawable(context, it).apply {
+                    sizeDp = 48
+                }.toBitmap()
+            }
+        }
+
+        return null
     }
 
     companion object {
         private const val TAG = "TileExtensions"
-        private var iconPack: IconPack? = null
-        private val toggleDomains = listOf(
-            "automation", "cover", "fan", "humidifier", "input_boolean", "light",
-            "media_player", "remote", "siren", "switch"
-        )
-        private val toggleDomainsWithLock = toggleDomains.plus("lock")
-        private val validActiveStates = listOf("on", "open", "locked")
-
-        private fun getTileIcon(tileIconId: Int, context: Context): Bitmap? {
-            // Create an icon pack and load all drawables.
-            if (iconPack == null) {
-                val loader = IconPackLoader(context)
-                iconPack = createMaterialDesignIconPack(loader)
-                iconPack!!.loadDrawables(loader.drawableLoader)
-            }
-
-            val iconDrawable = iconPack?.icons?.get(tileIconId)?.drawable
-            if (iconDrawable != null) {
-                return DrawableCompat.wrap(iconDrawable).toBitmap()
-            }
-            return null
-        }
+        private val toggleDomainsWithLock = EntityExt.DOMAINS_TOGGLE
     }
 
     private fun handleInject() {

@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-sdk tools:overrideLibrary="androidx.wear.remote.interactions" />
+    <uses-sdk tools:overrideLibrary="androidx.wear.remote.interactions,androidx.car.app.projected" />
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -142,7 +142,7 @@
                 android:resource="@xml/entity_widget_info" />
         </receiver>
 
-        <receiver android:name=".widgets.media_player_controls.MediaPlayerControlsWidget" android:label="@string/widget_media_player_description"
+        <receiver android:name=".widgets.mediaplayer.MediaPlayerControlsWidget" android:label="@string/widget_media_player_description"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -205,7 +205,7 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
-        <activity android:name=".widgets.media_player_controls.MediaPlayerControlsWidgetConfigureActivity"
+        <activity android:name=".widgets.mediaplayer.MediaPlayerControlsWidgetConfigureActivity"
             android:configChanges="orientation|screenSize"
             android:exported="true">
             <intent-filter>
@@ -230,10 +230,20 @@
         <service android:name=".controls.HaControlsProviderService"
             android:permission="android.permission.BIND_CONTROLS"
             android:exported="true">
+            <meta-data
+                android:name="android.service.controls.META_DATA_PANEL_ACTIVITY"
+                android:value="${applicationId}/io.homeassistant.companion.android.controls.HaControlsPanelActivity" />
             <intent-filter>
                 <action android:name="android.service.controls.ControlsProviderService"/>
             </intent-filter>
         </service>
+
+        <activity android:name=".controls.HaControlsPanelActivity"
+            android:permission="android.permission.BIND_CONTROLS"
+            android:exported="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="io.homeassistant.companion.android.controls"
+            android:enabled="false" />
 
         <receiver
             android:name=".sensors.LocationSensorManager"
@@ -383,6 +393,31 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".assist.AssistActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.homeassistant.companion.android.assist"
+            android:autoRemoveFromRecents="true"
+            android:showWhenLocked="true"
+            android:theme="@style/Theme.HomeAssistant.Assist">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".widgets.assist.AssistShortcutActivity"
+            android:label="@string/assist_shortcut"
+            android:icon="@mipmap/ic_assist_launcher"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.HomeAssistant.Config">
+            <intent-filter>
+                <action android:name="android.intent.action.CREATE_SHORTCUT"/>
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"
@@ -400,11 +435,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile2Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -412,11 +445,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile3Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -424,11 +455,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile4Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -436,11 +465,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile5Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -448,11 +475,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile6Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -460,11 +485,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile7Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -472,11 +495,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile8Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -484,11 +505,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile9Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -496,11 +515,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile10Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -508,11 +525,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile11Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -520,11 +535,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
-
         <service
             android:name=".qs.Tile12Service"
             android:icon="@drawable/ic_stat_ic_notification"
@@ -532,8 +545,315 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
-                <action
-                    android:name="android.service.quicksettings.action.QS_TILE"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile13Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_13"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile14Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_14"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile15Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_15"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile16Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_16"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile17Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_17"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile18Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_18"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile19Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_19"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile20Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_20"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile21Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_21"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile22Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_22"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile23Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_23"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile24Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_24"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile25Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_25"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile26Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_26"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile27Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_27"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile28Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_28"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile29Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_29"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile30Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_30"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile31Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_31"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile32Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_32"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile33Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_33"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile34Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_34"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile35Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_35"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile36Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_36"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile37Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_37"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile38Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_38"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile39Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_39"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+        <service
+            android:name=".qs.Tile40Service"
+            android:icon="@drawable/ic_stat_ic_notification"
+            android:label="@string/tile_40"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
             </intent-filter>
         </service>
 
@@ -555,6 +875,7 @@
             android:name=".notifications.NotificationDeleteReceiver"
             android:enabled="true"
             android:exported="true" />
+
     </application>
 
 </manifest>

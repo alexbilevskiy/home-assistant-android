@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
 import android.net.wifi.WifiManager
+import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.PowerManager
 import android.telephony.TelephonyManager
@@ -18,10 +19,11 @@ import io.homeassistant.companion.android.database.AppDatabase
 import io.homeassistant.companion.android.database.settings.SensorUpdateFrequencySetting
 import io.homeassistant.companion.android.sensors.SensorReceiver
 import io.homeassistant.companion.android.settings.language.LanguagesManager
+import io.homeassistant.companion.android.util.LifecycleHandler
 import io.homeassistant.companion.android.websocket.WebsocketBroadcastReceiver
 import io.homeassistant.companion.android.widgets.button.ButtonWidget
 import io.homeassistant.companion.android.widgets.entity.EntityWidget
-import io.homeassistant.companion.android.widgets.media_player_controls.MediaPlayerControlsWidget
+import io.homeassistant.companion.android.widgets.mediaplayer.MediaPlayerControlsWidget
 import io.homeassistant.companion.android.widgets.template.TemplateWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,8 @@ open class HomeAssistantApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        registerActivityLifecycleCallbacks(LifecycleHandler)
 
         ioScope.launch {
             initCrashReporting(
@@ -138,6 +142,12 @@ open class HomeAssistantApplication : Application() {
             IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
         )
 
+        // Listen for NFC state changes
+        registerReceiver(
+            sensorReceiver,
+            IntentFilter(NfcAdapter.ACTION_ADAPTER_STATE_CHANGED)
+        )
+
         // Listen to changes to the audio input/output on the device
         registerReceiver(
             sensorReceiver,
@@ -166,6 +176,11 @@ open class HomeAssistantApplication : Application() {
                 IntentFilter(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
             )
         }
+
+        registerReceiver(
+            sensorReceiver,
+            IntentFilter("androidx.car.app.connection.action.CAR_CONNECTION_UPDATED")
+        )
 
         // Add a receiver for the shutdown event to attempt to send 1 final sensor update
         registerReceiver(
@@ -205,11 +220,12 @@ open class HomeAssistantApplication : Application() {
 
         // Register for faster sensor updates if enabled
         val settingDao = AppDatabase.getInstance(applicationContext).settingsDao().get(0)
-        if (settingDao != null && (settingDao.sensorUpdateFrequency == SensorUpdateFrequencySetting.FAST_WHILE_CHARGING || settingDao.sensorUpdateFrequency == SensorUpdateFrequencySetting.FAST_ALWAYS))
+        if (settingDao != null && (settingDao.sensorUpdateFrequency == SensorUpdateFrequencySetting.FAST_WHILE_CHARGING || settingDao.sensorUpdateFrequency == SensorUpdateFrequencySetting.FAST_ALWAYS)) {
             registerReceiver(
                 sensorReceiver,
                 IntentFilter(Intent.ACTION_TIME_TICK)
             )
+        }
 
         // Update widgets when the screen turns on, updates are skipped if widgets were not added
         val buttonWidget = ButtonWidget()
